@@ -51,24 +51,24 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>) as self =
                         for testList in folder.TestLists do
                             let listName = testList.Name
                             for test in testList.Tests do
-                                let fromCases(name: string, cases: IReadOnlyCollection<string * 'a>) = task {
-                                    for caseName, _ in cases do
-                                        let displayName = $"{name}({caseName})"
-                                        let uid = $"{ns}.{listName}.{displayName}"
-                                        let node = makeTestNode(uid, displayName, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name) |])
-                                        let message = TestNodeUpdateMessage(sessionUid, node)
+                                let discoverCases(name: string, caseNames: IReadOnlyCollection<string>) : Task = task {
+                                    for caseName in caseNames do
+                                        let displayName: string = $"{name}({caseName})"
+                                        let uid: string = $"{ns}.{listName}.{displayName}"
+                                        let node: TestNode = makeTestNode(uid, displayName, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name) |])
+                                        let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                         do! context.MessageBus.PublishAsync(self, message)
                                 }
                                 match test with
                                 | Test.Sync(name, _) | Test.Async(name, _) ->
-                                    let uid = $"{ns}.{listName}.{name}"
-                                    let node = makeTestNode(uid, name, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name) |])
-                                    let message = TestNodeUpdateMessage(sessionUid, node)
+                                    let uid: string = $"{ns}.{listName}.{name}"
+                                    let node: TestNode = makeTestNode(uid, name, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name) |])
+                                    let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                     do! context.MessageBus.PublishAsync(self, message)
-                                | Test.CasesSync(name, cases) ->
-                                    do! fromCases(name, cases)
-                                | Test.CasesAsync(name, cases) ->
-                                    do! fromCases(name, cases)
+                                | Test.ICasesSync cases ->
+                                    do! discoverCases(cases.Name, cases.Names)
+                                | Test.ICasesAsync cases ->
+                                    do! discoverCases(cases.Name, cases.Names)
 
                 | :? RunTestExecutionRequest as request ->
                     let sessionUid = request.Session.SessionUid
@@ -102,8 +102,9 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>) as self =
                                     let node: TestNode = makeTestNode(uid, name, [| stateProperty; methodIdentifier(ns, listName, name) |])
                                     let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                     do! context.MessageBus.PublishAsync(self, message)
-                                | Test.CasesSync(name, cases) ->
-                                    for caseName, run in cases do
+                                | Test.ICasesSync cases ->
+                                    let name: string = cases.Name
+                                    for caseName, run in cases.Runs do
                                         let displayName: string = $"{name}({caseName})"
                                         let stateProperty: IProperty =
                                             try
@@ -115,8 +116,9 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>) as self =
                                         let node: TestNode = makeTestNode(uid, displayName, [| stateProperty; methodIdentifier(ns, listName, name) |])
                                         let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                         do! context.MessageBus.PublishAsync(self, message)
-                                | Test.CasesAsync(name, cases) ->
-                                    for caseName, run in cases do
+                                | Test.ICasesAsync cases ->
+                                    let name: string = cases.Name
+                                    for caseName, run in cases.Runs do
                                         let displayName: string = $"{name}({caseName})"
                                         let! stateProperty: IProperty =
                                             task {

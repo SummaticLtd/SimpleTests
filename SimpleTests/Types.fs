@@ -1,14 +1,49 @@
-namespace SimpleTests
+﻿namespace SimpleTests
 
 open System.Threading.Tasks
 open System.Collections.Generic
+open System.ComponentModel
+open System.Collections.Immutable
+
+type ICasesSync =
+    abstract member Name: string
+    abstract member Names: IReadOnlyCollection<string>
+    abstract member Runs: IReadOnlyCollection<string * (unit -> unit)>
+
+type ICasesAsync =
+    abstract member Name: string
+    abstract member Names: IReadOnlyCollection<string>
+    abstract member Runs: IReadOnlyCollection<string * (unit -> Task<unit>)>
+
+type private CasesSync<'a>(name: string, cases: ImmutableArray<string * 'a>, test: 'a -> unit) =
+    interface ICasesSync with
+        member _.Name = name
+        member _.Names = ImmutableArray.CreateRange(cases, fst)
+        member _.Runs = ImmutableArray.CreateRange(cases, fun (caseName, x) -> (caseName, fun () -> test x))
+
+type private CasesAsync<'a>(name: string, cases: ImmutableArray<string * 'a>, test: 'a -> Task<unit>) =
+    interface ICasesAsync with
+        member _.Name = name
+        member _.Names = ImmutableArray.CreateRange(cases, fst)
+        member _.Runs = ImmutableArray.CreateRange(cases, fun (caseName, x) -> (caseName, fun () -> test x))
 
 [<RequireQualifiedAccess>]
 type Test =
     | Sync of uniqueName: string * run: (unit -> unit)
-    | Async of uniqueName: string * run: (unit -> Task)
-    | CasesSync of uniqueName: string * cases: IReadOnlyCollection<string * (unit -> unit)>
-    | CasesAsync of uniqueName: string * cases: IReadOnlyCollection<string * (unit -> Task)>
+    | Async of uniqueName: string * run: (unit -> Task<unit>)
+    | [<EditorBrowsable(EditorBrowsableState.Never)>]
+        ICasesSync of ICasesSync
+    | [<EditorBrowsable(EditorBrowsableState.Never)>]
+        ICasesAsync of ICasesAsync
+module Test =
+    let CasesSync<'a>(name: string, cases: IReadOnlyCollection<string * 'a>, test: 'a -> unit) : Test =
+        let cases = ImmutableArray.CreateRange(cases)
+        let casesImpl = CasesSync(name, cases, test)
+        Test.ICasesSync casesImpl
+    let CasesAsync<'a>(name: string, cases: IReadOnlyCollection<string * 'a>, test: 'a -> Task<unit>) : Test =
+        let cases = ImmutableArray.CreateRange(cases)
+        let casesImpl = CasesAsync(name, cases, test)
+        Test.ICasesAsync casesImpl
 
 /// A collection of Tests, in VS Test Explorer corresponding to a `Class`.
 type TestList(name: string, tests: IReadOnlyCollection<Test>) =
