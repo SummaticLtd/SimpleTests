@@ -79,46 +79,54 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>) as self =
                             for test in testList.Tests do
                                 match test with
                                 | Test.Sync(name, run) ->
-                                    let result: Result<unit, string> = run ()
-                                    let uid: string = $"{ns}.{listName}.{name}"
                                     let stateProperty: IProperty =
-                                        match result with
-                                        | Ok () -> PassedTestNodeStateProperty(name)
-                                        | Error msg -> FailedTestNodeStateProperty(msg)
+                                        try
+                                            run ()
+                                            PassedTestNodeStateProperty(name)
+                                        with ex ->
+                                            FailedTestNodeStateProperty(ex, ex.Message)
+                                    let uid: string = $"{ns}.{listName}.{name}"
                                     let node: TestNode = makeTestNode(uid, name, [| stateProperty; methodIdentifier(ns, listName, name) |])
                                     let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                     do! context.MessageBus.PublishAsync(self, message)
                                 | Test.Async(name, run) ->
-                                    let! result: Result<unit, string> = run ()
+                                    let! stateProperty: IProperty =
+                                        task {
+                                            try
+                                                do! run ()
+                                                return PassedTestNodeStateProperty(name) :> IProperty
+                                            with ex ->
+                                                return FailedTestNodeStateProperty(ex, ex.Message) :> IProperty
+                                        }
                                     let uid: string = $"{ns}.{listName}.{name}"
-                                    let stateProperty: IProperty =
-                                        match result with
-                                        | Ok () -> PassedTestNodeStateProperty(name)
-                                        | Error msg -> FailedTestNodeStateProperty(msg)
                                     let node: TestNode = makeTestNode(uid, name, [| stateProperty; methodIdentifier(ns, listName, name) |])
                                     let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                     do! context.MessageBus.PublishAsync(self, message)
                                 | Test.CasesSync(name, cases) ->
                                     for caseName, run in cases do
-                                        let result: Result<unit, string> = run ()
                                         let displayName: string = $"{name}({caseName})"
-                                        let uid: string = $"{ns}.{listName}.{displayName}"
                                         let stateProperty: IProperty =
-                                            match result with
-                                            | Ok () -> PassedTestNodeStateProperty(displayName)
-                                            | Error msg -> FailedTestNodeStateProperty(msg)
+                                            try
+                                                run ()
+                                                PassedTestNodeStateProperty(displayName)
+                                            with ex ->
+                                                FailedTestNodeStateProperty(ex, ex.Message)
+                                        let uid: string = $"{ns}.{listName}.{displayName}"
                                         let node: TestNode = makeTestNode(uid, displayName, [| stateProperty; methodIdentifier(ns, listName, name) |])
                                         let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                         do! context.MessageBus.PublishAsync(self, message)
                                 | Test.CasesAsync(name, cases) ->
                                     for caseName, run in cases do
-                                        let! result: Result<unit, string> = run ()
                                         let displayName: string = $"{name}({caseName})"
+                                        let! stateProperty: IProperty =
+                                            task {
+                                                try
+                                                    do! run ()
+                                                    return PassedTestNodeStateProperty(displayName) :> IProperty
+                                                with ex ->
+                                                    return FailedTestNodeStateProperty(ex, ex.Message) :> IProperty
+                                            }
                                         let uid: string = $"{ns}.{listName}.{displayName}"
-                                        let stateProperty: IProperty =
-                                            match result with
-                                            | Ok () -> PassedTestNodeStateProperty(displayName)
-                                            | Error msg -> FailedTestNodeStateProperty(msg)
                                         let node: TestNode = makeTestNode(uid, displayName, [| stateProperty; methodIdentifier(ns, listName, name) |])
                                         let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                         do! context.MessageBus.PublishAsync(self, message)

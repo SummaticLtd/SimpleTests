@@ -14,8 +14,7 @@ let testFolders =
                   [  Test.Sync(
                          "2 + 2 should equal 4",
                          fun () ->
-                             if 2 + 2 = 4 then Ok()
-                             else Error "Expected 2 + 2 to equal 4"
+                             if 2 + 2 <> 4 then failwith "Expected 2 + 2 to equal 4"
                      )
                   ]
               )
