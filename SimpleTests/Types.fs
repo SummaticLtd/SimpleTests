@@ -29,13 +29,23 @@ type private CasesAsync<'a>(name: string, cases: ImmutableArray<string * 'a>, te
 
 [<RequireQualifiedAccess>]
 type Test =
-    | Sync of uniqueName: string * run: (unit -> unit)
-    | Async of uniqueName: string * run: (unit -> Task<unit>)
+    | [<EditorBrowsable(EditorBrowsableState.Never)>]
+        ѪSync of uniqueName: string * run: (unit -> unit) * ignored: bool
+    | [<EditorBrowsable(EditorBrowsableState.Never)>]
+        ѪAsync of uniqueName: string * run: (unit -> Task<unit>) * ignored: bool
     | [<EditorBrowsable(EditorBrowsableState.Never)>]
         ICasesSync of ICasesSync
     | [<EditorBrowsable(EditorBrowsableState.Never)>]
         ICasesAsync of ICasesAsync
 module Test =
+    let Sync(name: string, test: unit -> unit) : Test =
+        Test.ѪSync(name, test, false)
+    let IgnoredSync(name: string, test: unit -> unit) : Test =
+        Test.ѪSync(name, test, true)
+    let Async(name: string, test: unit -> Task<unit>) : Test =
+        Test.ѪAsync(name, test, false)
+    let IgnoredAsync(name: string, test: unit -> Task<unit>) : Test =
+        Test.ѪAsync(name, test, true)
     let CasesSync<'a>(name: string, cases: IReadOnlyCollection<string * 'a>, test: 'a -> unit) : Test =
         let cases = ImmutableArray.CreateRange(cases)
         let casesImpl = CasesSync(name, cases, test)
