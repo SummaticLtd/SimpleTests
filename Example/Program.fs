@@ -14,7 +14,6 @@ let main (args: string array) =
             (fun _ -> SimpleCapabilities() :> ITestFrameworkCapabilities),
             (fun _ _ ->
                 SimpleFramework(
-                    "two-plus-two",
                     "2 + 2 should equal 4",
                     (fun () ->
                         if 2 + 2 = 4 then Ok()

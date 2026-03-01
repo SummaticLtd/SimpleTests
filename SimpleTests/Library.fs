@@ -13,7 +13,7 @@ type SimpleCapabilities() =
         member _.Capabilities = [||]
 
 // -- Test framework that runs a single test --
-type SimpleFramework(testUid: string, testName: string, runTest: unit -> Result<unit, string>) as self =
+type SimpleFramework(uniqueName: string, runTest: unit -> Result<unit, string>) as self =
     interface IExtension with
         member _.Uid = "SimpleFramework"
         member _.Version = "1.0.0"
@@ -37,8 +37,8 @@ type SimpleFramework(testUid: string, testName: string, runTest: unit -> Result<
                 | :? DiscoverTestExecutionRequest as request ->
                     let testNode =
                         TestNode(
-                            Uid = TestNodeUid(testUid),
-                            DisplayName = testName,
+                            Uid = TestNodeUid(uniqueName),
+                            DisplayName = uniqueName,
                             Properties = PropertyBag(DiscoveredTestNodeStateProperty())
                         )
 
@@ -52,13 +52,13 @@ type SimpleFramework(testUid: string, testName: string, runTest: unit -> Result<
 
                     let stateProperty: IProperty =
                         match result with
-                        | Ok () -> PassedTestNodeStateProperty(testName) :> IProperty
+                        | Ok () -> PassedTestNodeStateProperty(uniqueName) :> IProperty
                         | Error msg -> FailedTestNodeStateProperty(msg) :> IProperty
 
                     let testNode =
                         TestNode(
-                            Uid = TestNodeUid(testUid),
-                            DisplayName = testName,
+                            Uid = TestNodeUid(uniqueName),
+                            DisplayName = uniqueName,
                             Properties = PropertyBag(stateProperty)
                         )
 
