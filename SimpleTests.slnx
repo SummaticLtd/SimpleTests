@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Example/Example.fsproj" />
+  <Project Path="SimpleTests/SimpleTests.fsproj" />
+</Solution>
