@@ -13,7 +13,7 @@ type SimpleCapabilities() =
         member _.Capabilities = [||]
 
 // -- Test framework that runs a single test --
-type SimpleFramework(testUid: string, testName: string, runTest: unit -> bool, failMessage: string) as self =
+type SimpleFramework(testUid: string, testName: string, runTest: unit -> Result<unit, string>) as self =
     interface IExtension with
         member _.Uid = "SimpleFramework"
         member _.Version = "1.0.0"
@@ -48,13 +48,12 @@ type SimpleFramework(testUid: string, testName: string, runTest: unit -> bool, f
                     do! context.MessageBus.PublishAsync(self, message)
 
                 | :? RunTestExecutionRequest as request ->
-                    let passed = runTest ()
+                    let result = runTest ()
 
                     let stateProperty: IProperty =
-                        if passed then
-                            PassedTestNodeStateProperty(testName) :> IProperty
-                        else
-                            FailedTestNodeStateProperty(failMessage) :> IProperty
+                        match result with
+                        | Ok () -> PassedTestNodeStateProperty(testName) :> IProperty
+                        | Error msg -> FailedTestNodeStateProperty(msg) :> IProperty
 
                     let testNode =
                         TestNode(

@@ -16,8 +16,9 @@ let main (args: string array) =
                 SimpleFramework(
                     "two-plus-two",
                     "2 + 2 should equal 4",
-                    (fun () -> 2 + 2 = 4),
-                    "Expected 2 + 2 to equal 4"
+                    (fun () ->
+                        if 2 + 2 = 4 then Ok()
+                        else Error "Expected 2 + 2 to equal 4")
                 )
                 :> ITestFramework)
         )
