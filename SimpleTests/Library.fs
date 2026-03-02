@@ -15,6 +15,7 @@ open Microsoft.Testing.Platform.Extensions
 open Microsoft.Testing.Platform.Extensions.Messages
 open Microsoft.Testing.Platform.Extensions.TestFramework
 open Microsoft.Testing.Platform.Requests
+open Microsoft.Testing.Extensions
 
 // -- Capabilities (none needed for this demo) --
 type SimpleCapabilities() =
@@ -232,6 +233,8 @@ type Runner =
                     | None -> SimpleFramework(testFolders) :> ITestFramework)
             )
             |> ignore
+
+            builder.AddTrxReportProvider() |> ignore
 
             let! app: ITestApplication = builder.BuildAsync()
             return! app.RunAsync()
