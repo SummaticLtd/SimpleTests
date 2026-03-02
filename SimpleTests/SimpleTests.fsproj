@@ -5,6 +5,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsTestProject>false</IsTestProject>
     <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <NoWarn>TPEXP</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
