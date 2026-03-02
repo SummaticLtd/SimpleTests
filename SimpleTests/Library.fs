@@ -3,6 +3,7 @@
 open System.Collections.Generic
 open System.Reflection
 open System.Threading.Tasks
+open Microsoft.Testing.Platform.Builder
 open Microsoft.Testing.Platform.Capabilities.TestFramework
 open Microsoft.Testing.Platform.Extensions
 open Microsoft.Testing.Platform.Extensions.Messages
@@ -145,3 +146,34 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
 
                 context.Complete()
             }
+
+module Runner =
+    let run (args: string array, testFolders: IReadOnlyCollection<TestFolder>) : int =
+        task {
+            let! builder: ITestApplicationBuilder = TestApplication.CreateBuilderAsync(args)
+
+            builder.RegisterTestFramework(
+                (fun _ -> SimpleCapabilities() :> ITestFrameworkCapabilities),
+                (fun _ _ -> SimpleFramework(testFolders) :> ITestFramework)
+            )
+            |> ignore
+
+            let! app: ITestApplication = builder.BuildAsync()
+            return! app.RunAsync()
+        }
+        |> fun t -> t.GetAwaiter().GetResult()
+
+    let runWithSetup (args: string array, testFolders: IReadOnlyCollection<TestFolder>, oneTimeSetup: unit -> unit) : int =
+        task {
+            let! builder: ITestApplicationBuilder = TestApplication.CreateBuilderAsync(args)
+
+            builder.RegisterTestFramework(
+                (fun _ -> SimpleCapabilities() :> ITestFrameworkCapabilities),
+                (fun _ _ -> SimpleFramework(testFolders, oneTimeSetup = oneTimeSetup) :> ITestFramework)
+            )
+            |> ignore
+
+            let! app: ITestApplication = builder.BuildAsync()
+            return! app.RunAsync()
+        }
+        |> fun t -> t.GetAwaiter().GetResult()

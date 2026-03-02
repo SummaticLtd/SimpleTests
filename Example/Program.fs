@@ -1,9 +1,6 @@
 ﻿module Program
 
 open SimpleTests
-open Microsoft.Testing.Platform.Builder
-open Microsoft.Testing.Platform.Capabilities.TestFramework
-open Microsoft.Testing.Platform.Extensions.TestFramework
 
 let testFolders =
     [
@@ -23,17 +20,5 @@ let testFolders =
     ]
 
 [<EntryPoint>]
-let main (args: string array) =
-    task {
-        let! builder = TestApplication.CreateBuilderAsync(args)
-
-        builder.RegisterTestFramework(
-            (fun _ -> SimpleCapabilities() :> ITestFrameworkCapabilities),
-            (fun _ _ -> SimpleFramework(testFolders) :> ITestFramework)
-        )
-        |> ignore
-
-        let! app = builder.BuildAsync()
-        return! app.RunAsync()
-    }
-    |> fun t -> t.GetAwaiter().GetResult()
+let main (args: string array) : int =
+    Runner.run(args, testFolders)
