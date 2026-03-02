@@ -116,6 +116,15 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
 
                 | :? RunTestExecutionRequest as request ->
                     let sessionUid = request.Session.SessionUid
+                    let filterUids: HashSet<string> option =
+                        match request.Filter with
+                        | :? TestNodeUidListFilter as f ->
+                            Some(HashSet(f.TestNodeUids |> Array.map (fun uid -> uid.Value)))
+                        | _ -> None
+                    let shouldRun (uid: string) : bool =
+                        match filterUids with
+                        | Some uids -> uids.Contains(uid)
+                        | None -> true
                     oneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                     for folder in testFolders do
                         let ns = folder.NamespaceName
@@ -126,81 +135,85 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                             for test in testList.Tests do
                                 match test with
                                 | Test.ѪSync(name, run, ignored, filePath, lineNumber) ->
-                                    let sw: Stopwatch = Stopwatch.StartNew()
-                                    let (stateProperty: IProperty), (output: string) =
-                                        if ignored then
-                                            (SkippedTestNodeStateProperty("Ignored") :> IProperty), ""
-                                        else
-                                            try
-                                                let ((), captured) = captureOutput run
-                                                (PassedTestNodeStateProperty(name) :> IProperty), captured
-                                            with ex ->
-                                                (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
-                                    sw.Stop()
                                     let uid: string = $"{ns}.{listName}.{name}"
-                                    let methodId: IProperty = methodIdentifier(ns, listName, name)
-                                    let loc: IProperty = fileLocation(filePath, lineNumber)
-                                    let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
-                                    let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                    do! context.MessageBus.PublishAsync(self, message)
-                                | Test.ѪAsync(name, run, ignored, filePath, lineNumber) ->
-                                    let sw: Stopwatch = Stopwatch.StartNew()
-                                    let! (stateProperty: IProperty), (output: string) =
-                                        task {
+                                    if shouldRun uid then
+                                        let sw: Stopwatch = Stopwatch.StartNew()
+                                        let (stateProperty: IProperty), (output: string) =
                                             if ignored then
-                                                return (SkippedTestNodeStateProperty("Ignored") :> IProperty), ""
+                                                (SkippedTestNodeStateProperty("Ignored") :> IProperty), ""
                                             else
                                                 try
-                                                    let! captured: string = captureOutputAsync run
-                                                    return (PassedTestNodeStateProperty(name) :> IProperty), captured
+                                                    let ((), captured) = captureOutput run
+                                                    (PassedTestNodeStateProperty(name) :> IProperty), captured
                                                 with ex ->
-                                                    return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
-                                        }
-                                    sw.Stop()
+                                                    (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
+                                        sw.Stop()
+                                        let methodId: IProperty = methodIdentifier(ns, listName, name)
+                                        let loc: IProperty = fileLocation(filePath, lineNumber)
+                                        let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
+                                        let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                        do! context.MessageBus.PublishAsync(self, message)
+                                | Test.ѪAsync(name, run, ignored, filePath, lineNumber) ->
                                     let uid: string = $"{ns}.{listName}.{name}"
-                                    let methodId: IProperty = methodIdentifier(ns, listName, name)
-                                    let loc: IProperty = fileLocation(filePath, lineNumber)
-                                    let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
-                                    let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                    do! context.MessageBus.PublishAsync(self, message)
+                                    if shouldRun uid then
+                                        let sw: Stopwatch = Stopwatch.StartNew()
+                                        let! (stateProperty: IProperty), (output: string) =
+                                            task {
+                                                if ignored then
+                                                    return (SkippedTestNodeStateProperty("Ignored") :> IProperty), ""
+                                                else
+                                                    try
+                                                        let! captured: string = captureOutputAsync run
+                                                        return (PassedTestNodeStateProperty(name) :> IProperty), captured
+                                                    with ex ->
+                                                        return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
+                                            }
+                                        sw.Stop()
+                                        let methodId: IProperty = methodIdentifier(ns, listName, name)
+                                        let loc: IProperty = fileLocation(filePath, lineNumber)
+                                        let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
+                                        let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                        do! context.MessageBus.PublishAsync(self, message)
                                 | Test.ICasesSync cases ->
                                     let name: string = cases.Name
                                     let loc: IProperty = fileLocation(cases.FilePath, cases.LineNumber) :> IProperty
                                     let methodId: IProperty = methodIdentifier(ns, listName, name)
                                     for caseName, run in cases.Runs do
                                         let displayName: string = $"{name}({caseName})"
-                                        let sw: Stopwatch = Stopwatch.StartNew()
-                                        let (stateProperty: IProperty), (output: string) =
-                                            try
-                                                let ((), captured) = captureOutput run
-                                                (PassedTestNodeStateProperty(displayName) :> IProperty), captured
-                                            with ex ->
-                                                (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
-                                        sw.Stop()
                                         let uid: string = $"{ns}.{listName}.{displayName}"
-                                        let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
-                                        let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                        do! context.MessageBus.PublishAsync(self, message)
+                                        if shouldRun uid then
+                                            let sw: Stopwatch = Stopwatch.StartNew()
+                                            let (stateProperty: IProperty), (output: string) =
+                                                try
+                                                    let ((), captured) = captureOutput run
+                                                    (PassedTestNodeStateProperty(displayName) :> IProperty), captured
+                                                with ex ->
+                                                    (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
+                                            sw.Stop()
+                                            let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
+                                            let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                            do! context.MessageBus.PublishAsync(self, message)
                                 | Test.ICasesAsync cases ->
                                     let name: string = cases.Name
                                     let loc: IProperty = fileLocation(cases.FilePath, cases.LineNumber) :> IProperty
                                     let methodId: IProperty = methodIdentifier(ns, listName, name)
                                     for caseName, run in cases.Runs do
                                         let displayName: string = $"{name}({caseName})"
-                                        let sw: Stopwatch = Stopwatch.StartNew()
-                                        let! (stateProperty: IProperty), (output: string) =
-                                            task {
-                                                try
-                                                    let! captured: string = captureOutputAsync run
-                                                    return (PassedTestNodeStateProperty(displayName) :> IProperty), captured
-                                                with ex ->
-                                                    return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
-                                            }
-                                        sw.Stop()
                                         let uid: string = $"{ns}.{listName}.{displayName}"
-                                        let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
-                                        let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                        do! context.MessageBus.PublishAsync(self, message)
+                                        if shouldRun uid then
+                                            let sw: Stopwatch = Stopwatch.StartNew()
+                                            let! (stateProperty: IProperty), (output: string) =
+                                                task {
+                                                    try
+                                                        let! captured: string = captureOutputAsync run
+                                                        return (PassedTestNodeStateProperty(displayName) :> IProperty), captured
+                                                    with ex ->
+                                                        return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
+                                                }
+                                            sw.Stop()
+                                            let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
+                                            let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                            do! context.MessageBus.PublishAsync(self, message)
                 | _ -> ()
 
                 context.Complete()
