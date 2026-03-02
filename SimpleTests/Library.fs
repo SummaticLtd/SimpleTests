@@ -8,6 +8,7 @@ open System.Collections.Generic
 open System.Diagnostics
 open System.IO
 open System.Reflection
+open System.Runtime.ExceptionServices
 open System.Threading.Tasks
 open Microsoft.Testing.Platform.Builder
 open Microsoft.Testing.Platform.Capabilities.TestFramework
@@ -36,19 +37,19 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
     let makeTestNode (uid: string, displayName: string, properties: IProperty array) : TestNode =
         TestNode(Uid = TestNodeUid(uid), DisplayName = displayName, Properties = PropertyBag(properties))
 
-    let captureOutput (action: unit -> 'a) : 'a * string =
+    let captureOutput (action: unit -> unit) : exn option * string =
         let original: TextWriter = Console.Out
         use writer: StringWriter = new StringWriter()
         Console.SetOut(writer)
         try
-            let result: 'a = action ()
+            action ()
             Console.SetOut(original)
-            (result, writer.ToString())
+            (None, writer.ToString())
         with ex ->
             Console.SetOut(original)
-            reraise ()
+            (Some ex, writer.ToString())
 
-    let captureOutputAsync (action: unit -> Task<unit>) : Task<string> =
+    let captureOutputAsync (action: unit -> Task<unit>) : Task<exn option * string> =
         task {
             let original: TextWriter = Console.Out
             use writer: StringWriter = new StringWriter()
@@ -56,10 +57,10 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
             try
                 do! action ()
                 Console.SetOut(original)
-                return writer.ToString()
+                return (None, writer.ToString())
             with ex ->
                 Console.SetOut(original)
-                return raise ex
+                return (Some ex, writer.ToString())
         }
 
     let buildProperties (stateProperty: IProperty, methodId: IProperty, loc: IProperty, output: string, elapsed: TimeSpan) : IProperty array =
@@ -143,11 +144,9 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                                             if ignored then
                                                 (SkippedTestNodeStateProperty("Ignored") :> IProperty), ""
                                             else
-                                                try
-                                                    let ((), captured) = captureOutput run
-                                                    (PassedTestNodeStateProperty(name) :> IProperty), captured
-                                                with ex ->
-                                                    (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
+                                                match captureOutput run with
+                                                | None, captured -> (PassedTestNodeStateProperty(name) :> IProperty), captured
+                                                | Some ex, captured -> (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured
                                         sw.Stop()
                                         let methodId: IProperty = methodIdentifier(ns, listName, name)
                                         let loc: IProperty = fileLocation(filePath, lineNumber)
@@ -163,11 +162,10 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                                                 if ignored then
                                                     return (SkippedTestNodeStateProperty("Ignored") :> IProperty), ""
                                                 else
-                                                    try
-                                                        let! captured: string = captureOutputAsync run
-                                                        return (PassedTestNodeStateProperty(name) :> IProperty), captured
-                                                    with ex ->
-                                                        return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
+                                                    let! (failure, captured) = captureOutputAsync run
+                                                    match failure with
+                                                    | None -> return (PassedTestNodeStateProperty(name) :> IProperty), captured
+                                                    | Some ex -> return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured
                                             }
                                         sw.Stop()
                                         let methodId: IProperty = methodIdentifier(ns, listName, name)
@@ -185,11 +183,9 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                                         if shouldRun uid then
                                             let sw: Stopwatch = Stopwatch.StartNew()
                                             let (stateProperty: IProperty), (output: string) =
-                                                try
-                                                    let ((), captured) = captureOutput run
-                                                    (PassedTestNodeStateProperty(displayName) :> IProperty), captured
-                                                with ex ->
-                                                    (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
+                                                match captureOutput run with
+                                                | None, captured -> (PassedTestNodeStateProperty(displayName) :> IProperty), captured
+                                                | Some ex, captured -> (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured
                                             sw.Stop()
                                             let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
                                             let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
@@ -205,11 +201,10 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                                             let sw: Stopwatch = Stopwatch.StartNew()
                                             let! (stateProperty: IProperty), (output: string) =
                                                 task {
-                                                    try
-                                                        let! captured: string = captureOutputAsync run
-                                                        return (PassedTestNodeStateProperty(displayName) :> IProperty), captured
-                                                    with ex ->
-                                                        return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), ""
+                                                    let! (failure, captured) = captureOutputAsync run
+                                                    match failure with
+                                                    | None -> return (PassedTestNodeStateProperty(displayName) :> IProperty), captured
+                                                    | Some ex -> return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured
                                                 }
                                             sw.Stop()
                                             let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed))
