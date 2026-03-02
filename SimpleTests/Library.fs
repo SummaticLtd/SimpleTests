@@ -147,29 +147,17 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                 context.Complete()
             }
 
-module Runner =
-    let run (args: string array, testFolders: IReadOnlyCollection<TestFolder>) : int =
+type Runner =
+    static member Run(args: string array, testFolders: IReadOnlyCollection<TestFolder>, ?oneTimeSetup: unit -> unit) : int =
         task {
             let! builder: ITestApplicationBuilder = TestApplication.CreateBuilderAsync(args)
 
             builder.RegisterTestFramework(
                 (fun _ -> SimpleCapabilities() :> ITestFrameworkCapabilities),
-                (fun _ _ -> SimpleFramework(testFolders) :> ITestFramework)
-            )
-            |> ignore
-
-            let! app: ITestApplication = builder.BuildAsync()
-            return! app.RunAsync()
-        }
-        |> fun t -> t.GetAwaiter().GetResult()
-
-    let runWithSetup (args: string array, testFolders: IReadOnlyCollection<TestFolder>, oneTimeSetup: unit -> unit) : int =
-        task {
-            let! builder: ITestApplicationBuilder = TestApplication.CreateBuilderAsync(args)
-
-            builder.RegisterTestFramework(
-                (fun _ -> SimpleCapabilities() :> ITestFrameworkCapabilities),
-                (fun _ _ -> SimpleFramework(testFolders, oneTimeSetup = oneTimeSetup) :> ITestFramework)
+                (fun _ _ ->
+                    match oneTimeSetup with
+                    | Some setup -> SimpleFramework(testFolders, oneTimeSetup = setup) :> ITestFramework
+                    | None -> SimpleFramework(testFolders) :> ITestFramework)
             )
             |> ignore
 

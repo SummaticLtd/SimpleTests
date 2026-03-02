@@ -21,4 +21,4 @@ let testFolders =
 
 [<EntryPoint>]
 let main (args: string array) : int =
-    Runner.run(args, testFolders)
+    Runner.Run(args, testFolders)
