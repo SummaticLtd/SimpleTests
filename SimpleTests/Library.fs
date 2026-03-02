@@ -80,10 +80,10 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
         Array.concat [| [| stateProperty; methodId; loc; timing |]; trxException; standardOutput |]
 
     interface IExtension with
-        member _.Uid = "SimpleFramework"
+        member _.Uid = "SimpleTests"
         member _.Version = "1.0.0"
-        member _.DisplayName = "Simple Framework"
-        member _.Description = "Minimal direct Microsoft.Testing.Platform demo"
+        member _.DisplayName = "SimpleTests"
+        member _.Description = "Minimal direct testing framework based on Microsoft.Testing.Platform"
         member _.IsEnabledAsync() = Task.FromResult(true)
 
     interface IDataProducer with
@@ -240,7 +240,7 @@ type Runner =
 
             builder.AddTrxReportProvider() |> ignore
 
-            let! app: ITestApplication = builder.BuildAsync()
+            use! app = builder.BuildAsync()
             return! app.RunAsync()
         }
         |> fun t -> t.GetAwaiter().GetResult()
