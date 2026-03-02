@@ -15,7 +15,7 @@ type SimpleCapabilities() =
         member _.Capabilities = [||]
 
 // -- Test framework --
-type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>) as self =
+type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?oneTimeSetup: unit -> unit) as self =
     let assemblyName = Assembly.GetEntryAssembly().GetName().Name
 
     let methodIdentifier (ns: string, typeName: string, methodName: string) : TestMethodIdentifierProperty =
@@ -72,10 +72,13 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>) as self =
 
                 | :? RunTestExecutionRequest as request ->
                     let sessionUid = request.Session.SessionUid
+                    oneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                     for folder in testFolders do
                         let ns = folder.NamespaceName
+                        folder.OneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                         for testList in folder.TestLists do
                             let listName = testList.Name
+                            testList.OneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                             for test in testList.Tests do
                                 match test with
                                 | Test.ѪSync(name, run, ignored) ->

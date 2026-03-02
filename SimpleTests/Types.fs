@@ -56,11 +56,13 @@ module Test =
         Test.ICasesAsync casesImpl
 
 /// A collection of Tests, in VS Test Explorer corresponding to a `Class`.
-type TestList(name: string, tests: IReadOnlyCollection<Test>) =
+type TestList(name: string, tests: IReadOnlyCollection<Test>, [<Struct>] ?oneTimeSetup: unit -> unit) =
     member _.Name = name
     member _.Tests = tests
+    member _.OneTimeSetup: (unit -> unit) voption = oneTimeSetup
 
 /// A collection of test lists, in VS Test Explorer corresponding to a `Namespace`.
-type TestFolder(namespaceName: string, testLists: IReadOnlyCollection<TestList>) =
+type TestFolder(namespaceName: string, testLists: IReadOnlyCollection<TestList>, [<Struct>] ?oneTimeSetup: unit -> unit) =
     member _.NamespaceName = namespaceName
     member _.TestLists = testLists
+    member _.OneTimeSetup: (unit -> unit) voption = oneTimeSetup
