@@ -1,34 +1,89 @@
 ﻿namespace SimpleTests
 
+// StandardOutputProperty is marked [Experimental("TPEXP")] in Microsoft.Testing.Platform
+#nowarn "57"
+
+open System
 open System.Collections.Generic
+open System.Diagnostics
+open System.IO
 open System.Reflection
 open System.Threading.Tasks
+open Microsoft.Testing.Platform.Builder
 open Microsoft.Testing.Platform.Capabilities.TestFramework
 open Microsoft.Testing.Platform.Extensions
 open Microsoft.Testing.Platform.Extensions.Messages
 open Microsoft.Testing.Platform.Extensions.TestFramework
 open Microsoft.Testing.Platform.Requests
+open Microsoft.Testing.Extensions
+open Microsoft.Testing.Extensions.TrxReport.Abstractions
 
-// -- Capabilities (none needed for this demo) --
+// -- Capabilities --
+type SimpleTrxCapability() =
+    interface ITrxReportCapability with
+        member _.IsSupported = true
+        member _.Enable() = ()
+
 type SimpleCapabilities() =
     interface ITestFrameworkCapabilities with
-        member _.Capabilities = [||]
+        member _.Capabilities = [| SimpleTrxCapability() |]
 
 // -- Test framework --
-type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>) as self =
+type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?oneTimeSetup: unit -> unit) as self =
     let assemblyName = Assembly.GetEntryAssembly().GetName().Name
 
     let methodIdentifier (ns: string, typeName: string, methodName: string) : TestMethodIdentifierProperty =
         TestMethodIdentifierProperty(assemblyName, ns, typeName, methodName, 0, [||], "System.Void")
 
+    let fileLocation (filePath: string, lineNumber: int) : TestFileLocationProperty =
+        let pos: LinePosition = LinePosition(lineNumber, 0)
+        TestFileLocationProperty(filePath, LinePositionSpan(pos, pos))
+
     let makeTestNode (uid: string, displayName: string, properties: IProperty array) : TestNode =
         TestNode(Uid = TestNodeUid(uid), DisplayName = displayName, Properties = PropertyBag(properties))
 
+    let captureOutput (action: unit -> unit) : exn option * string =
+        let original: TextWriter = Console.Out
+        use writer: StringWriter = new StringWriter()
+        Console.SetOut(writer)
+        try
+            action ()
+            Console.SetOut(original)
+            (None, writer.ToString())
+        with ex ->
+            Console.SetOut(original)
+            (Some ex, writer.ToString())
+
+    let captureOutputAsync (action: unit -> Task<unit>) : Task<exn option * string> =
+        task {
+            let original: TextWriter = Console.Out
+            use writer: StringWriter = new StringWriter()
+            Console.SetOut(writer)
+            try
+                do! action ()
+                Console.SetOut(original)
+                return (None, writer.ToString())
+            with ex ->
+                Console.SetOut(original)
+                return (Some ex, writer.ToString())
+        }
+
+    let buildProperties (stateProperty: IProperty, methodId: IProperty, loc: IProperty, output: string, elapsed: TimeSpan, failure: exn option) : IProperty array =
+        let timing: IProperty = TimingProperty(TimingInfo(DateTimeOffset.UtcNow - elapsed, DateTimeOffset.UtcNow, elapsed))
+        let trxException: IProperty array =
+            match failure with
+            | Some ex -> [| TrxExceptionProperty(ex.Message, ex.ToString()) |]
+            | None -> [||]
+        let standardOutput: IProperty array =
+            if String.IsNullOrEmpty(output) then [||]
+            else [| StandardOutputProperty(output) |]
+        Array.concat [| [| stateProperty; methodId; loc; timing |]; trxException; standardOutput |]
+
     interface IExtension with
-        member _.Uid = "SimpleFramework"
+        member _.Uid = "SimpleTests"
         member _.Version = "1.0.0"
-        member _.DisplayName = "Simple Framework"
-        member _.Description = "Minimal direct Microsoft.Testing.Platform demo"
+        member _.DisplayName = "SimpleTests"
+        member _.Description = "Minimal direct testing framework based on Microsoft.Testing.Platform"
         member _.IsEnabledAsync() = Task.FromResult(true)
 
     interface IDataProducer with
@@ -51,78 +106,141 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>) as self =
                         for testList in folder.TestLists do
                             let listName = testList.Name
                             for test in testList.Tests do
-                                let fromCases(name: string, cases: IReadOnlyCollection<string * 'a>) = task {
-                                    for caseName, _ in cases do
-                                        let displayName = $"{name}({caseName})"
-                                        let uid = $"{ns}.{listName}.{displayName}"
-                                        let node = makeTestNode(uid, displayName, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name) |])
-                                        let message = TestNodeUpdateMessage(sessionUid, node)
+                                let discoverCases(name: string, caseNames: IReadOnlyCollection<string>, filePath: string, lineNumber: int) : Task = task {
+                                    for caseName in caseNames do
+                                        let displayName: string = $"{name}({caseName})"
+                                        let uid: string = $"{ns}.{listName}.{displayName}"
+                                        let node: TestNode = makeTestNode(uid, displayName, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name); fileLocation(filePath, lineNumber) |])
+                                        let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                         do! context.MessageBus.PublishAsync(self, message)
                                 }
                                 match test with
-                                | Test.Sync(name, _) | Test.Async(name, _) ->
-                                    let uid = $"{ns}.{listName}.{name}"
-                                    let node = makeTestNode(uid, name, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name) |])
-                                    let message = TestNodeUpdateMessage(sessionUid, node)
+                                | Test.ѪSync(name, _, _, filePath, lineNumber) | Test.ѪAsync(name, _, _, filePath, lineNumber) ->
+                                    let uid: string = $"{ns}.{listName}.{name}"
+                                    let node: TestNode = makeTestNode(uid, name, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name); fileLocation(filePath, lineNumber) |])
+                                    let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                     do! context.MessageBus.PublishAsync(self, message)
-                                | Test.CasesSync(name, cases) ->
-                                    do! fromCases(name, cases)
-                                | Test.CasesAsync(name, cases) ->
-                                    do! fromCases(name, cases)
+                                | Test.ICasesSync cases ->
+                                    do! discoverCases(cases.Name, cases.Names, cases.FilePath, cases.LineNumber)
+                                | Test.ICasesAsync cases ->
+                                    do! discoverCases(cases.Name, cases.Names, cases.FilePath, cases.LineNumber)
 
                 | :? RunTestExecutionRequest as request ->
                     let sessionUid = request.Session.SessionUid
+                    let filterUids: HashSet<string> option =
+                        match request.Filter with
+                        | :? TestNodeUidListFilter as f ->
+                            Some(HashSet(f.TestNodeUids |> Array.map (fun uid -> uid.Value)))
+                        | _ -> None
+                    let shouldRun (uid: string) : bool =
+                        match filterUids with
+                        | Some uids -> uids.Contains(uid)
+                        | None -> true
+                    oneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                     for folder in testFolders do
                         let ns = folder.NamespaceName
+                        folder.OneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                         for testList in folder.TestLists do
                             let listName = testList.Name
+                            testList.OneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                             for test in testList.Tests do
                                 match test with
-                                | Test.Sync(name, run) ->
-                                    let result: Result<unit, string> = run ()
+                                | Test.ѪSync(name, run, ignored, filePath, lineNumber) ->
                                     let uid: string = $"{ns}.{listName}.{name}"
-                                    let stateProperty: IProperty =
-                                        match result with
-                                        | Ok () -> PassedTestNodeStateProperty(name)
-                                        | Error msg -> FailedTestNodeStateProperty(msg)
-                                    let node: TestNode = makeTestNode(uid, name, [| stateProperty; methodIdentifier(ns, listName, name) |])
-                                    let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                    do! context.MessageBus.PublishAsync(self, message)
-                                | Test.Async(name, run) ->
-                                    let! result: Result<unit, string> = run ()
-                                    let uid: string = $"{ns}.{listName}.{name}"
-                                    let stateProperty: IProperty =
-                                        match result with
-                                        | Ok () -> PassedTestNodeStateProperty(name)
-                                        | Error msg -> FailedTestNodeStateProperty(msg)
-                                    let node: TestNode = makeTestNode(uid, name, [| stateProperty; methodIdentifier(ns, listName, name) |])
-                                    let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                    do! context.MessageBus.PublishAsync(self, message)
-                                | Test.CasesSync(name, cases) ->
-                                    for caseName, run in cases do
-                                        let result: Result<unit, string> = run ()
-                                        let displayName: string = $"{name}({caseName})"
-                                        let uid: string = $"{ns}.{listName}.{displayName}"
-                                        let stateProperty: IProperty =
-                                            match result with
-                                            | Ok () -> PassedTestNodeStateProperty(displayName)
-                                            | Error msg -> FailedTestNodeStateProperty(msg)
-                                        let node: TestNode = makeTestNode(uid, displayName, [| stateProperty; methodIdentifier(ns, listName, name) |])
+                                    if shouldRun uid then
+                                        let sw: Stopwatch = Stopwatch.StartNew()
+                                        let (stateProperty: IProperty), (output: string), (failure: exn option) =
+                                            if ignored then
+                                                (SkippedTestNodeStateProperty("Ignored") :> IProperty), "", None
+                                            else
+                                                match captureOutput run with
+                                                | None, captured -> (PassedTestNodeStateProperty(name) :> IProperty), captured, None
+                                                | Some ex, captured -> (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
+                                        sw.Stop()
+                                        let methodId: IProperty = methodIdentifier(ns, listName, name)
+                                        let loc: IProperty = fileLocation(filePath, lineNumber)
+                                        let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed, failure))
                                         let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                         do! context.MessageBus.PublishAsync(self, message)
-                                | Test.CasesAsync(name, cases) ->
-                                    for caseName, run in cases do
-                                        let! result: Result<unit, string> = run ()
-                                        let displayName: string = $"{name}({caseName})"
-                                        let uid: string = $"{ns}.{listName}.{displayName}"
-                                        let stateProperty: IProperty =
-                                            match result with
-                                            | Ok () -> PassedTestNodeStateProperty(displayName)
-                                            | Error msg -> FailedTestNodeStateProperty(msg)
-                                        let node: TestNode = makeTestNode(uid, displayName, [| stateProperty; methodIdentifier(ns, listName, name) |])
+                                | Test.ѪAsync(name, run, ignored, filePath, lineNumber) ->
+                                    let uid: string = $"{ns}.{listName}.{name}"
+                                    if shouldRun uid then
+                                        let sw: Stopwatch = Stopwatch.StartNew()
+                                        let! (stateProperty: IProperty), (output: string), (failure: exn option) =
+                                            task {
+                                                if ignored then
+                                                    return (SkippedTestNodeStateProperty("Ignored") :> IProperty), "", None
+                                                else
+                                                    let! (failure, captured) = captureOutputAsync run
+                                                    match failure with
+                                                    | None -> return (PassedTestNodeStateProperty(name) :> IProperty), captured, None
+                                                    | Some ex -> return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
+                                            }
+                                        sw.Stop()
+                                        let methodId: IProperty = methodIdentifier(ns, listName, name)
+                                        let loc: IProperty = fileLocation(filePath, lineNumber)
+                                        let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed, failure))
                                         let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                         do! context.MessageBus.PublishAsync(self, message)
+                                | Test.ICasesSync cases ->
+                                    let name: string = cases.Name
+                                    let loc: IProperty = fileLocation(cases.FilePath, cases.LineNumber) :> IProperty
+                                    let methodId: IProperty = methodIdentifier(ns, listName, name)
+                                    for caseName, run in cases.Runs do
+                                        let displayName: string = $"{name}({caseName})"
+                                        let uid: string = $"{ns}.{listName}.{displayName}"
+                                        if shouldRun uid then
+                                            let sw: Stopwatch = Stopwatch.StartNew()
+                                            let (stateProperty: IProperty), (output: string), (failure: exn option) =
+                                                match captureOutput run with
+                                                | None, captured -> (PassedTestNodeStateProperty(displayName) :> IProperty), captured, None
+                                                | Some ex, captured -> (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
+                                            sw.Stop()
+                                            let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed, failure))
+                                            let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                            do! context.MessageBus.PublishAsync(self, message)
+                                | Test.ICasesAsync cases ->
+                                    let name: string = cases.Name
+                                    let loc: IProperty = fileLocation(cases.FilePath, cases.LineNumber) :> IProperty
+                                    let methodId: IProperty = methodIdentifier(ns, listName, name)
+                                    for caseName, run in cases.Runs do
+                                        let displayName: string = $"{name}({caseName})"
+                                        let uid: string = $"{ns}.{listName}.{displayName}"
+                                        if shouldRun uid then
+                                            let sw: Stopwatch = Stopwatch.StartNew()
+                                            let! (stateProperty: IProperty), (output: string), (failure: exn option) =
+                                                task {
+                                                    let! (failure, captured) = captureOutputAsync run
+                                                    match failure with
+                                                    | None -> return (PassedTestNodeStateProperty(displayName) :> IProperty), captured, None
+                                                    | Some ex -> return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
+                                                }
+                                            sw.Stop()
+                                            let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed, failure))
+                                            let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                            do! context.MessageBus.PublishAsync(self, message)
                 | _ -> ()
 
                 context.Complete()
             }
+
+type Runner =
+    static member Run(args: string array, testFolders: IReadOnlyCollection<TestFolder>, ?oneTimeSetup: unit -> unit) : int =
+        task {
+            let! builder: ITestApplicationBuilder = TestApplication.CreateBuilderAsync(args)
+
+            builder.RegisterTestFramework(
+                (fun _ -> SimpleCapabilities() :> ITestFrameworkCapabilities),
+                (fun _ _ ->
+                    match oneTimeSetup with
+                    | Some setup -> SimpleFramework(testFolders, oneTimeSetup = setup) :> ITestFramework
+                    | None -> SimpleFramework(testFolders) :> ITestFramework)
+            )
+            |> ignore
+
+            builder.AddTrxReportProvider() |> ignore
+
+            use! app = builder.BuildAsync()
+            return! app.RunAsync()
+        }
+        |> fun t -> t.GetAwaiter().GetResult()
