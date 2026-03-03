@@ -5,6 +5,7 @@ open System.Collections.Generic
 open System.ComponentModel
 open System.Collections.Immutable
 open System.Runtime.CompilerServices
+open System.Runtime.InteropServices
 
 type ICasesSync =
     abstract member Name: string
@@ -43,9 +44,9 @@ type Test =
     | [<EditorBrowsable(EditorBrowsableState.Never)>]
         ѪAsync of uniqueName: string * run: (unit -> Task<unit>) * ignored: bool * filePath: string * lineNumber: int
     | [<EditorBrowsable(EditorBrowsableState.Never)>]
-        ICasesSync of ICasesSync
+        ICasesSync of ICasesSync * parallel: bool
     | [<EditorBrowsable(EditorBrowsableState.Never)>]
-        ICasesAsync of ICasesAsync
+        ICasesAsync of ICasesAsync * parallel: bool
 type Test with
     static member Sync(name: string, test: unit -> unit, [<CallerFilePath>] ?filePath: string, [<CallerLineNumber>] ?lineNumber: int) : Test =
         Test.ѪSync(name, test, false, defaultArg filePath "", defaultArg lineNumber 0)
@@ -55,14 +56,14 @@ type Test with
         Test.ѪAsync(name, test, false, defaultArg filePath "", defaultArg lineNumber 0)
     static member IgnoredAsync(name: string, test: unit -> Task<unit>, [<CallerFilePath>] ?filePath: string, [<CallerLineNumber>] ?lineNumber: int) : Test =
         Test.ѪAsync(name, test, true, defaultArg filePath "", defaultArg lineNumber 0)
-    static member CasesSync<'a>(name: string, cases: IReadOnlyCollection<string * 'a>, test: 'a -> unit, [<CallerFilePath>] ?filePath: string, [<CallerLineNumber>] ?lineNumber: int) : Test =
+    static member CasesSync<'a>(name: string, cases: IReadOnlyCollection<string * 'a>, test: 'a -> unit, [<Optional; DefaultParameterValue(true)>] parallel: bool, [<CallerFilePath>] ?filePath: string, [<CallerLineNumber>] ?lineNumber: int) : Test =
         let cases = ImmutableArray.CreateRange(cases)
         let casesImpl = CasesSync(name, defaultArg filePath "", defaultArg lineNumber 0, cases, test)
-        Test.ICasesSync casesImpl
-    static member CasesAsync<'a>(name: string, cases: IReadOnlyCollection<string * 'a>, test: 'a -> Task<unit>, [<CallerFilePath>] ?filePath: string, [<CallerLineNumber>] ?lineNumber: int) : Test =
+        Test.ICasesSync(casesImpl, parallel)
+    static member CasesAsync<'a>(name: string, cases: IReadOnlyCollection<string * 'a>, test: 'a -> Task<unit>, [<Optional; DefaultParameterValue(true)>] parallel: bool, [<CallerFilePath>] ?filePath: string, [<CallerLineNumber>] ?lineNumber: int) : Test =
         let cases = ImmutableArray.CreateRange(cases)
         let casesImpl = CasesAsync(name, defaultArg filePath "", defaultArg lineNumber 0, cases, test)
-        Test.ICasesAsync casesImpl
+        Test.ICasesAsync(casesImpl, parallel)
 
 /// A collection of Tests, in VS Test Explorer corresponding to a `Class`.
 type TestList(name: string, tests: IReadOnlyCollection<Test>, [<Struct>] ?oneTimeSetup: unit -> unit) =
