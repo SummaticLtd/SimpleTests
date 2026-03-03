@@ -6,7 +6,6 @@
 open System
 open System.Collections.Generic
 open System.Diagnostics
-open System.IO
 open System.Reflection
 open System.Threading.Tasks
 open Microsoft.Testing.Platform.Builder
@@ -42,34 +41,8 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
     let makeTestNode (uid: string, displayName: string, properties: IProperty array) : TestNode =
         TestNode(Uid = TestNodeUid(uid), DisplayName = displayName, Properties = PropertyBag(properties))
 
-    let captureOutput (action: unit -> unit) : exn option * string =
-        let original: TextWriter = Console.Out
-        use writer: StringWriter = new StringWriter()
-        Console.SetOut(writer)
-        try
-            action ()
-            Console.SetOut(original)
-            (None, writer.ToString())
-        with ex ->
-            Console.SetOut(original)
-            (Some ex, writer.ToString())
-
-    let captureOutputAsync (action: unit -> Task<unit>) : Task<exn option * string> =
-        task {
-            let original: TextWriter = Console.Out
-            use writer: StringWriter = new StringWriter()
-            Console.SetOut(writer)
-            try
-                do! action ()
-                Console.SetOut(original)
-                return (None, writer.ToString())
-            with ex ->
-                Console.SetOut(original)
-                return (Some ex, writer.ToString())
-        }
-
-    let buildProperties (stateProperty: IProperty, methodId: IProperty, loc: IProperty, output: string, elapsed: TimeSpan, failure: exn option) : IProperty array =
-        let timing: IProperty = TimingProperty(TimingInfo(DateTimeOffset.UtcNow - elapsed, DateTimeOffset.UtcNow, elapsed))
+    let buildProperties (stateProperty: IProperty, methodId: IProperty, loc: IProperty, output: string, startTime: DateTimeOffset, elapsed: TimeSpan, failure: exn option) : IProperty array =
+        let timing: IProperty = TimingProperty(TimingInfo(startTime, startTime + elapsed, elapsed))
         let trxException: IProperty array =
             match failure with
             | Some ex -> [| TrxExceptionProperty(ex.Message, ex.ToString()) |]
@@ -120,9 +93,9 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                                     let node: TestNode = makeTestNode(uid, name, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name); fileLocation(filePath, lineNumber) |])
                                     let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                     do! context.MessageBus.PublishAsync(self, message)
-                                | Test.ICasesSync cases ->
+                                | Test.ICasesSync(cases, _) ->
                                     do! discoverCases(cases.Name, cases.Names, cases.FilePath, cases.LineNumber)
-                                | Test.ICasesAsync cases ->
+                                | Test.ICasesAsync(cases, _) ->
                                     do! discoverCases(cases.Name, cases.Names, cases.FilePath, cases.LineNumber)
 
                 | :? RunTestExecutionRequest as request ->
@@ -148,30 +121,32 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                                 | Test.ѪSync(name, run, ignored, filePath, lineNumber) ->
                                     let uid: string = $"{ns}.{listName}.{name}"
                                     if shouldRun uid then
+                                        let startTime: DateTimeOffset = DateTimeOffset.UtcNow
                                         let sw: Stopwatch = Stopwatch.StartNew()
                                         let (stateProperty: IProperty), (output: string), (failure: exn option) =
                                             if ignored then
                                                 (SkippedTestNodeStateProperty("Ignored") :> IProperty), "", None
                                             else
-                                                match captureOutput run with
+                                                match ConsoleCapture.captureOutput run with
                                                 | None, captured -> (PassedTestNodeStateProperty(name) :> IProperty), captured, None
                                                 | Some ex, captured -> (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
                                         sw.Stop()
                                         let methodId: IProperty = methodIdentifier(ns, listName, name)
                                         let loc: IProperty = fileLocation(filePath, lineNumber)
-                                        let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed, failure))
+                                        let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, startTime, sw.Elapsed, failure))
                                         let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                        do! context.MessageBus.PublishAsync(self, message)
+                                        context.MessageBus.PublishAsync(self, message).GetAwaiter().GetResult()
                                 | Test.ѪAsync(name, run, ignored, filePath, lineNumber) ->
                                     let uid: string = $"{ns}.{listName}.{name}"
                                     if shouldRun uid then
+                                        let startTime: DateTimeOffset = DateTimeOffset.UtcNow
                                         let sw: Stopwatch = Stopwatch.StartNew()
                                         let! (stateProperty: IProperty), (output: string), (failure: exn option) =
                                             task {
                                                 if ignored then
                                                     return (SkippedTestNodeStateProperty("Ignored") :> IProperty), "", None
                                                 else
-                                                    let! (failure, captured) = captureOutputAsync run
+                                                    let! (failure, captured) = ConsoleCapture.captureOutputAsync run
                                                     match failure with
                                                     | None -> return (PassedTestNodeStateProperty(name) :> IProperty), captured, None
                                                     | Some ex -> return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
@@ -179,46 +154,60 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                                         sw.Stop()
                                         let methodId: IProperty = methodIdentifier(ns, listName, name)
                                         let loc: IProperty = fileLocation(filePath, lineNumber)
-                                        let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed, failure))
+                                        let node: TestNode = makeTestNode(uid, name, buildProperties(stateProperty, methodId, loc, output, startTime, sw.Elapsed, failure))
                                         let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
                                         do! context.MessageBus.PublishAsync(self, message)
-                                | Test.ICasesSync cases ->
+                                | Test.ICasesSync(cases, isParallel) ->
                                     let name: string = cases.Name
                                     let loc: IProperty = fileLocation(cases.FilePath, cases.LineNumber) :> IProperty
                                     let methodId: IProperty = methodIdentifier(ns, listName, name)
-                                    for caseName, run in cases.Runs do
+                                    let runCase (caseName: string, run: unit -> unit) =
                                         let displayName: string = $"{name}({caseName})"
                                         let uid: string = $"{ns}.{listName}.{displayName}"
                                         if shouldRun uid then
+                                            let startTime: DateTimeOffset = DateTimeOffset.UtcNow
                                             let sw: Stopwatch = Stopwatch.StartNew()
                                             let (stateProperty: IProperty), (output: string), (failure: exn option) =
-                                                match captureOutput run with
+                                                match ConsoleCapture.captureOutput run with
                                                 | None, captured -> (PassedTestNodeStateProperty(displayName) :> IProperty), captured, None
                                                 | Some ex, captured -> (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
                                             sw.Stop()
-                                            let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed, failure))
+                                            let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, startTime, sw.Elapsed, failure))
                                             let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                            do! context.MessageBus.PublishAsync(self, message)
-                                | Test.ICasesAsync cases ->
+                                            context.MessageBus.PublishAsync(self, message).GetAwaiter().GetResult()
+                                    if isParallel then
+                                        Parallel.ForEach(cases.Runs, fun (caseName, run) -> runCase(caseName, run)) |> ignore
+                                    else
+                                        for caseName, run in cases.Runs do
+                                            runCase(caseName, run)
+                                | Test.ICasesAsync(cases, isParallel) ->
                                     let name: string = cases.Name
                                     let loc: IProperty = fileLocation(cases.FilePath, cases.LineNumber) :> IProperty
                                     let methodId: IProperty = methodIdentifier(ns, listName, name)
-                                    for caseName, run in cases.Runs do
-                                        let displayName: string = $"{name}({caseName})"
-                                        let uid: string = $"{ns}.{listName}.{displayName}"
-                                        if shouldRun uid then
-                                            let sw: Stopwatch = Stopwatch.StartNew()
-                                            let! (stateProperty: IProperty), (output: string), (failure: exn option) =
-                                                task {
-                                                    let! (failure, captured) = captureOutputAsync run
-                                                    match failure with
-                                                    | None -> return (PassedTestNodeStateProperty(displayName) :> IProperty), captured, None
-                                                    | Some ex -> return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
-                                                }
-                                            sw.Stop()
-                                            let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, sw.Elapsed, failure))
-                                            let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                            do! context.MessageBus.PublishAsync(self, message)
+                                    let runCase (caseName: string, run: unit -> Task<unit>) : Task =
+                                        task {
+                                            let displayName: string = $"{name}({caseName})"
+                                            let uid: string = $"{ns}.{listName}.{displayName}"
+                                            if shouldRun uid then
+                                                let startTime: DateTimeOffset = DateTimeOffset.UtcNow
+                                                let sw: Stopwatch = Stopwatch.StartNew()
+                                                let! (stateProperty: IProperty), (output: string), (failure: exn option) =
+                                                    task {
+                                                        let! (failure, captured) = ConsoleCapture.captureOutputAsync run
+                                                        match failure with
+                                                        | None -> return (PassedTestNodeStateProperty(displayName) :> IProperty), captured, None
+                                                        | Some ex -> return (FailedTestNodeStateProperty(ex, ex.Message) :> IProperty), captured, Some ex
+                                                    }
+                                                sw.Stop()
+                                                let node: TestNode = makeTestNode(uid, displayName, buildProperties(stateProperty, methodId, loc, output, startTime, sw.Elapsed, failure))
+                                                let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                                do! context.MessageBus.PublishAsync(self, message)
+                                        }
+                                    if isParallel then
+                                        do! Parallel.ForEachAsync(cases.Runs, fun (caseName, run) _ct -> ValueTask(runCase(caseName, run)))
+                                    else
+                                        for caseName, run in cases.Runs do
+                                            do! runCase(caseName, run)
                 | _ -> ()
 
                 context.Complete()
