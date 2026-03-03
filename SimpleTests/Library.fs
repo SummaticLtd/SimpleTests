@@ -81,7 +81,7 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
 
     interface IExtension with
         member _.Uid = "SimpleTests"
-        member _.Version = "1.0.0"
+        member _.Version = "0.1.0"
         member _.DisplayName = "SimpleTests"
         member _.Description = "Minimal direct testing framework based on Microsoft.Testing.Platform"
         member _.IsEnabledAsync() = Task.FromResult(true)
