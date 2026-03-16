@@ -26,7 +26,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="ConsoleCapture.fs" />
     <Compile Include="Types.fs" />
+    <Compile Include="ConsoleCapture.fs" />
     <Compile Include="Library.fs" />
   </ItemGroup>
 
