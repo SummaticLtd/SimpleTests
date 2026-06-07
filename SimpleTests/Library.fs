@@ -11,10 +11,13 @@ open System.Reflection
 open System.Threading.Tasks
 open Microsoft.Testing.Platform.Builder
 open Microsoft.Testing.Platform.Capabilities.TestFramework
+open Microsoft.Testing.Platform.CommandLine
 open Microsoft.Testing.Platform.Extensions
+open Microsoft.Testing.Platform.Extensions.CommandLine
 open Microsoft.Testing.Platform.Extensions.Messages
 open Microsoft.Testing.Platform.Extensions.TestFramework
 open Microsoft.Testing.Platform.Requests
+open Microsoft.Testing.Platform.Services
 open Microsoft.Testing.Extensions
 open Microsoft.Testing.Extensions.TrxReport.Abstractions
 
@@ -28,9 +31,47 @@ type SimpleCapabilities() =
     interface ITestFrameworkCapabilities with
         member _.Capabilities = [| SimpleTrxCapability() |]
 
+// -- Command-line filtering --
+// The platform's built-in tree-node filter capability is internal, so SimpleTests exposes its
+// own `--filter`: a case-insensitive substring matched against each test's full name
+// "namespace.list.test" (the same string `--filter-uid` expects, but no exact match needed).
+// Repeatable; a test runs if it matches any of the given values. Also honoured by `--list-tests`.
+[<RequireQualifiedAccess>]
+module private Filter =
+    [<Literal>]
+    let OptionName = "filter"
+
+type SimpleFilterOptionsProvider() =
+    let options: IReadOnlyCollection<CommandLineOption> =
+        [| CommandLineOption(
+               Filter.OptionName,
+               "Run only tests whose full name (namespace.list.test) contains the given text, case-insensitive. Repeatable; a test runs if it matches any value.",
+               ArgumentArity.OneOrMore,
+               false) |]
+    interface IExtension with
+        member _.Uid = "SimpleTests.Filter"
+        member _.Version = "0.1.0"
+        member _.DisplayName = "SimpleTests filter"
+        member _.Description = "Substring filtering for SimpleTests"
+        member _.IsEnabledAsync() = Task.FromResult(true)
+    interface ICommandLineOptionsProvider with
+        member _.GetCommandLineOptions() = options
+        member _.ValidateOptionArgumentsAsync(_option, _arguments) = ValidationResult.ValidTask
+        member _.ValidateCommandLineOptionsAsync(_commandLineOptions) = ValidationResult.ValidTask
+
 // -- Test framework --
-type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?oneTimeSetup: unit -> unit) as self =
+type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, commandLineOptions: ICommandLineOptions, [<Struct>] ?oneTimeSetup: unit -> unit) as self =
     let assemblyName = Assembly.GetEntryAssembly().GetName().Name
+
+    // Substring values supplied via `--filter`; empty means "no filter, run everything".
+    let filterSubstrings: string array =
+        match commandLineOptions.TryGetOptionArgumentList(Filter.OptionName) with
+        | true, args -> args
+        | _ -> [||]
+
+    let matchesFilter (uid: string) : bool =
+        filterSubstrings.Length = 0
+        || filterSubstrings |> Array.exists (fun s -> uid.Contains(s, StringComparison.OrdinalIgnoreCase))
 
     let methodIdentifier (ns: string, typeName: string, methodName: string) : TestMethodIdentifierProperty =
         TestMethodIdentifierProperty(assemblyName, ns, typeName, methodName, 0, [||], "System.Void")
@@ -110,16 +151,18 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                                     for caseName in caseNames do
                                         let displayName: string = $"{name}({caseName})"
                                         let uid: string = $"{ns}.{listName}.{displayName}"
-                                        let node: TestNode = makeTestNode(uid, displayName, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name); fileLocation(filePath, lineNumber) |])
-                                        let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                        do! context.MessageBus.PublishAsync(self, message)
+                                        if matchesFilter uid then
+                                            let node: TestNode = makeTestNode(uid, displayName, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name); fileLocation(filePath, lineNumber) |])
+                                            let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                            do! context.MessageBus.PublishAsync(self, message)
                                 }
                                 match test with
                                 | Test.ѪSync(name, _, _, filePath, lineNumber) | Test.ѪAsync(name, _, _, filePath, lineNumber) ->
                                     let uid: string = $"{ns}.{listName}.{name}"
-                                    let node: TestNode = makeTestNode(uid, name, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name); fileLocation(filePath, lineNumber) |])
-                                    let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
-                                    do! context.MessageBus.PublishAsync(self, message)
+                                    if matchesFilter uid then
+                                        let node: TestNode = makeTestNode(uid, name, [| DiscoveredTestNodeStateProperty(); methodIdentifier(ns, listName, name); fileLocation(filePath, lineNumber) |])
+                                        let message: TestNodeUpdateMessage = TestNodeUpdateMessage(sessionUid, node)
+                                        do! context.MessageBus.PublishAsync(self, message)
                                 | Test.ICasesSync cases ->
                                     do! discoverCases(cases.Name, cases.Names, cases.FilePath, cases.LineNumber)
                                 | Test.ICasesAsync cases ->
@@ -133,9 +176,10 @@ type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, [<Struct>] ?o
                             Some(HashSet(f.TestNodeUids |> Array.map (fun uid -> uid.Value)))
                         | _ -> None
                     let shouldRun (uid: string) : bool =
-                        match filterUids with
-                        | Some uids -> uids.Contains(uid)
-                        | None -> true
+                        matchesFilter uid
+                        && match filterUids with
+                           | Some uids -> uids.Contains(uid)
+                           | None -> true
                     oneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                     for folder in testFolders do
                         let ns = folder.NamespaceName
@@ -229,12 +273,15 @@ type Runner =
         task {
             let! builder: ITestApplicationBuilder = TestApplication.CreateBuilderAsync(args)
 
+            builder.CommandLine.AddProvider(Func<ICommandLineOptionsProvider>(fun () -> SimpleFilterOptionsProvider() :> ICommandLineOptionsProvider))
+
             builder.RegisterTestFramework(
                 (fun _ -> SimpleCapabilities() :> ITestFrameworkCapabilities),
-                (fun _ _ ->
+                (fun _ (serviceProvider: IServiceProvider) ->
+                    let commandLineOptions: ICommandLineOptions = serviceProvider.GetCommandLineOptions()
                     match oneTimeSetup with
-                    | Some setup -> SimpleFramework(testFolders, oneTimeSetup = setup) :> ITestFramework
-                    | None -> SimpleFramework(testFolders) :> ITestFramework)
+                    | Some setup -> SimpleFramework(testFolders, commandLineOptions, oneTimeSetup = setup) :> ITestFramework
+                    | None -> SimpleFramework(testFolders, commandLineOptions) :> ITestFramework)
             )
             |> ignore
 
