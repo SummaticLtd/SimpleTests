@@ -20,39 +20,20 @@ A SimpleTests project is a normal executable, so run it with `dotnet run` (or in
 dotnet run -- [options]
 ```
 
-### Running a filtered subset
+### Running a subset
 
-SimpleTests is built directly on Microsoft.Testing.Platform as a standalone test framework. It does **not** use the VSTest bridge, so the familiar VSTest expression filter (`--filter "FullyQualifiedName~..."`) and `dotnet test --filter` are **not** available. Instead, filtering uses the test's **full name**:
+Filter by a test's **full name**, `namespace.list.test` — the `TestFolder`, `TestList`, and test names joined by dots (data-driven cases append `(case)`, e.g. `MathTests.DataDrivenTests.sync addition(1 + 2 = 3)`).
 
-```
-namespace.list.test
-```
-
-— that is, the `TestFolder` namespace, the `TestList` name, and the test name joined by dots. Data-driven cases append the case name in parentheses, e.g. `MathTests.DataDrivenTests.sync addition(1 + 2 = 3)`.
-
-Three ways to filter, in order of usefulness:
-
-- **`--filter <text>`** — runs every test whose full name *contains* `<text>`, case-insensitive (like VSTest's `~` operator). Repeatable; a test runs if it matches **any** value. This is the option to reach for.
+- **`--filter <text>`** — runs tests whose full name contains `<text>` on a word boundary, case-insensitive. Repeatable; a test runs if it matches **any** value.
 
     ```console
-    dotnet run -- --filter "passing"            # any test whose name contains "passing"
-    dotnet run -- --filter ".SyncTests."        # a whole list (dots anchor the segment)
-    dotnet run -- --filter "addition(1 + 2"     # a single data-driven case
-    dotnet run -- --filter "passing" --filter "ignored"   # union of both
+    dotnet run -- --filter passing            # tests with the word "passing"
+    dotnet run -- --filter SyncTests          # a whole list (matches the segment, not "AsyncTests")
+    dotnet run -- --filter "addition(1 + 2"   # a single data-driven case
+    dotnet run -- --filter passing --filter ignored   # union of both
     ```
 
-    Because it's a substring match, `--filter "SyncTests"` also matches `AsyncTests` (it contains the letters `synctests`). Anchor with the surrounding dots — `--filter ".SyncTests."` — to target one list precisely.
+- **`--list-tests [--filter <text>]`** — lists matching tests without running them, to preview a filter.
+- **`--filter-uid <uid>`** — exact full-name match; what IDE Test Explorer uses under the hood.
 
-- **`--list-tests`** — lists test display names without running them. Combine with `--filter` to preview exactly what a filter selects before running it:
-
-    ```console
-    dotnet run -- --list-tests --filter ".SyncTests."
-    ```
-
-- **`--filter-uid <uid> [<uid> ...]`** — a built-in Microsoft.Testing.Platform option that runs tests by their **exact** full name (no substring). This is what IDE Test Explorer uses under the hood. A non-matching UID silently runs zero tests, so prefer `--filter` unless you need an exact match.
-
-    ```console
-    dotnet run -- --filter-uid "MathTests.SyncTests.passing sync test"
-    ```
-
-Run `dotnet run -- --help` to see all available options.
+> The VSTest expression filter (`--filter "FullyQualifiedName~..."`) and `dotnet test --filter` aren't supported — SimpleTests runs directly on Microsoft.Testing.Platform without the VSTest bridge. Run `dotnet run -- --help` for all options.
