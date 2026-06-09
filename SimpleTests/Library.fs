@@ -33,40 +33,19 @@ type SimpleCapabilities() =
 
 // -- Command-line filtering --
 // The platform's built-in tree-node filter capability is internal, so SimpleTests exposes its
-// own `--filter`, matched against each test's full name "namespace.list.test" (the same string
-// `--filter-uid` expects, but no exact match needed). Repeatable; a test runs if it matches any
-// of the given values. Also honoured by `--list-tests`.
+// own `--filter`: a substring matched against each test's full name "namespace.list.test".
+// Also honoured by `--list-tests`.
 [<RequireQualifiedAccess>]
 module private Filter =
     [<Literal>]
     let OptionName = "filter"
 
-    let private isWordChar (c: char) : bool = Char.IsLetterOrDigit c || c = '_'
-
-    /// True if `term` occurs in `fullName` (case-insensitive) on a word boundary: a
-    /// word-character edge of `term` must abut a non-word character (or the string end).
-    /// So "passing" still matches inside "passing sync test", while "SyncTests" matches the
-    /// SyncTests segment without bleeding into "AsyncTests".
-    let matches (fullName: string) (term: string) : bool =
-        if term.Length = 0 then true
-        else
-            let last: int = term.Length - 1
-            let rec search (from: int) : bool =
-                let i: int = fullName.IndexOf(term, from, StringComparison.OrdinalIgnoreCase)
-                if i < 0 then false
-                else
-                    let leftOk: bool = i = 0 || not (isWordChar term.[0]) || not (isWordChar fullName.[i - 1])
-                    let endIdx: int = i + term.Length
-                    let rightOk: bool = endIdx = fullName.Length || not (isWordChar term.[last]) || not (isWordChar fullName.[endIdx])
-                    if leftOk && rightOk then true else search (i + 1)
-            search 0
-
 type SimpleFilterOptionsProvider() =
     let options: IReadOnlyCollection<CommandLineOption> =
         [| CommandLineOption(
                Filter.OptionName,
-               "Run only tests whose full name (namespace.list.test) contains the given text on a word boundary, case-insensitive. Repeatable; a test runs if it matches any value.",
-               ArgumentArity.OneOrMore,
+               "Run only tests whose full name (namespace.list.test) contains the given text.",
+               ArgumentArity.ExactlyOne,
                false) |]
     interface IExtension with
         member _.Uid = "SimpleTests.Filter"
@@ -83,15 +62,16 @@ type SimpleFilterOptionsProvider() =
 type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, commandLineOptions: ICommandLineOptions, [<Struct>] ?oneTimeSetup: unit -> unit) as self =
     let assemblyName = Assembly.GetEntryAssembly().GetName().Name
 
-    // Terms supplied via `--filter`; empty means "no filter, run everything".
-    let filterTerms: string array =
+    // Text supplied via `--filter`; None means "no filter, run everything".
+    let filterText: string option =
         match commandLineOptions.TryGetOptionArgumentList(Filter.OptionName) with
-        | true, args -> args
-        | _ -> [||]
+        | true, [| text |] -> Some text
+        | _ -> None
 
     let matchesFilter (uid: string) : bool =
-        filterTerms.Length = 0
-        || filterTerms |> Array.exists (Filter.matches uid)
+        match filterText with
+        | Some text -> uid.Contains(text)
+        | None -> true
 
     let methodIdentifier (ns: string, typeName: string, methodName: string) : TestMethodIdentifierProperty =
         TestMethodIdentifierProperty(assemblyName, ns, typeName, methodName, 0, [||], "System.Void")
