@@ -11,3 +11,15 @@ A minimal, explicit, type-safe dotnet test framework built on [Microsoft.Testing
 - **Explicit hierarchy matching Visual Studio.** `TestFolder` maps to a namespace and `TestList` maps to a class in Test Explorer, so the tree you define is the tree you see.
 - **Standalone executable.** Built on Microsoft.Testing.Platform, each test project runs as its own process with no vstest.console.exe host, giving faster startup and simpler CI orchestration.
 - **Minimal API surface.** Just `Test`, `TestList`, `TestFolder`, and `Runner.Run`.
+
+## Testing with Microsoft.Testing.Platform
+
+SimpleTests uses Microsoft.Testing.Platform. See [Testing with `dotnet test`](https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-with-dotnet-test) for how to run it.
+
+## Filtering tests
+
+Pass `--filter <text>` to run only the tests whose full name `namespace.list.test` (your `TestFolder`, `TestList`, and test names joined by dots) contains `<text>`.
+
+```console
+dotnet run -- --filter passing
+```
