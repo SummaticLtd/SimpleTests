@@ -42,11 +42,13 @@ module private Filter =
 
 type internal SimpleFilterOptionsProvider() =
     let options: IReadOnlyCollection<CommandLineOption> =
-        [| CommandLineOption(
-               Filter.OptionName,
-               "Run only tests whose full name (namespace.list.test) contains the given text (case-sensitive).",
-               ArgumentArity.ExactlyOne,
-               false) |]
+        [|
+            CommandLineOption(
+                Filter.OptionName,
+                "Run only tests whose full name (namespace.list.test) contains the given text (case-sensitive).",
+                ArgumentArity.ExactlyOne,
+                false)
+        |]
     interface IExtension with
         member _.Uid = "SimpleTests.Filter"
         member _.Version = "0.1.0"
@@ -177,9 +179,9 @@ type internal SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, comm
                         | _ -> None
                     let shouldRun (uid: string) : bool =
                         matchesFilter uid
-                        && match filterUids with
-                           | Some uids -> uids.Contains(uid)
-                           | None -> true
+                        && (match filterUids with
+                            | Some uids -> uids.Contains(uid)
+                            | None -> true)
                     oneTimeSetup |> ValueOption.iter (fun setup -> setup ())
                     for folder in testFolders do
                         let ns = folder.NamespaceName
