@@ -14,7 +14,7 @@ A minimal, explicit, type-safe dotnet test framework built on [Microsoft.Testing
 
 ## Testing with Microsoft.Testing.Platform
 
-SimpleTests uses Microsoft.Testing.Platform. see [Testing with `dotnet test`](https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-with-dotnet-test) for how to run it.
+SimpleTests uses Microsoft.Testing.Platform. See [Testing with `dotnet test`](https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-with-dotnet-test) for how to run it.
 
 ## Filtering tests
 

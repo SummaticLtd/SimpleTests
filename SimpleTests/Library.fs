@@ -22,12 +22,12 @@ open Microsoft.Testing.Extensions
 open Microsoft.Testing.Extensions.TrxReport.Abstractions
 
 // -- Capabilities --
-type SimpleTrxCapability() =
+type internal SimpleTrxCapability() =
     interface ITrxReportCapability with
         member _.IsSupported = true
         member _.Enable() = ()
 
-type SimpleCapabilities() =
+type internal SimpleCapabilities() =
     interface ITestFrameworkCapabilities with
         member _.Capabilities = [| SimpleTrxCapability() |]
 
@@ -40,14 +40,13 @@ module private Filter =
     [<Literal>]
     let OptionName = "filter"
 
-type SimpleFilterOptionsProvider() =
+type internal SimpleFilterOptionsProvider() =
     let options: IReadOnlyCollection<CommandLineOption> =
-        CommandLineOption(
-            Filter.OptionName,
-            "Run only tests whose full name (namespace.list.test) contains the given text.",
-            ArgumentArity.ExactlyOne,
-            false)
-        |> Array.singleton
+        [| CommandLineOption(
+               Filter.OptionName,
+               "Run only tests whose full name (namespace.list.test) contains the given text (case-sensitive).",
+               ArgumentArity.ExactlyOne,
+               false) |]
     interface IExtension with
         member _.Uid = "SimpleTests.Filter"
         member _.Version = "0.1.0"
@@ -60,7 +59,7 @@ type SimpleFilterOptionsProvider() =
         member _.ValidateCommandLineOptionsAsync(_commandLineOptions) = ValidationResult.ValidTask
 
 // -- Test framework --
-type SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, commandLineOptions: ICommandLineOptions, [<Struct>] ?oneTimeSetup: unit -> unit) as self =
+type internal SimpleFramework(testFolders: IReadOnlyCollection<TestFolder>, commandLineOptions: ICommandLineOptions, [<Struct>] ?oneTimeSetup: unit -> unit) as self =
     let assemblyName = Assembly.GetEntryAssembly().GetName().Name
 
     // Text supplied via `--filter`; None means "no filter, run everything".
