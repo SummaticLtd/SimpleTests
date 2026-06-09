@@ -42,11 +42,12 @@ module private Filter =
 
 type SimpleFilterOptionsProvider() =
     let options: IReadOnlyCollection<CommandLineOption> =
-        [| CommandLineOption(
-               Filter.OptionName,
-               "Run only tests whose full name (namespace.list.test) contains the given text.",
-               ArgumentArity.ExactlyOne,
-               false) |]
+        CommandLineOption(
+            Filter.OptionName,
+            "Run only tests whose full name (namespace.list.test) contains the given text.",
+            ArgumentArity.ExactlyOne,
+            false)
+        |> Array.singleton
     interface IExtension with
         member _.Uid = "SimpleTests.Filter"
         member _.Version = "0.1.0"
