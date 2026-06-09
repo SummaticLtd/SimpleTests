@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <PackageId>SimpleTests</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Charles Roddie</Authors>
     <Company>Summatic Ltd</Company>
     <Description>A simple type-safe dotnet test framework built on Microsoft.Testing.Platform.</Description>
