@@ -4,19 +4,19 @@ open System.Threading.Tasks
 open SimpleTests
 
 let validatePositive (n: int) : unit =
-    if n <= 0 then failwith $"{n} is not positive"
+    Assert.Greater(n, 0, $"{n} is not positive")
 
 let checkSum (a: int, b: int, expected: int) : unit =
     let actual: int = a + b
     validatePositive actual
-    if actual <> expected then failwith $"Expected {expected} but got {actual}"
+    Assert.Equal(expected, actual)
 
 let checkSumAsync (a: int, b: int, expected: int) : Task<unit> =
     task {
         do! Task.Delay(10)
         let actual: int = a + b
         validatePositive actual
-        if actual <> expected then failwith $"Expected {expected} but got {actual}"
+        Assert.Equal(expected, actual)
     }
 
 let additionData: (string * (int * int * int)) list =
