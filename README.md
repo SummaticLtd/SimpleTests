@@ -10,7 +10,28 @@ A minimal, explicit, type-safe dotnet test framework built on [Microsoft.Testing
 - **Explicit setup at every level.** One-time setup functions can be specified per `TestFolder`, `TestList`, or the entire run, with no convention-based lifecycle to learn.
 - **Explicit hierarchy matching Visual Studio.** `TestFolder` maps to a namespace and `TestList` maps to a class in Test Explorer, so the tree you define is the tree you see.
 - **Standalone executable.** Built on Microsoft.Testing.Platform, each test project runs as its own process with no vstest.console.exe host, giving faster startup and simpler CI orchestration.
-- **Minimal API surface.** Just `Test`, `TestList`, `TestFolder`, and `Runner.Run`.
+- **Minimal API surface.** Just `Test`, `TestList`, `TestFolder`, `Assert`, and `Runner.Run`.
+
+## Assertions
+
+`Assert` throws on failure with a message showing the expected and actual values; every member takes an optional trailing message.
+
+```fsharp
+Assert.Equal(expected, actual)
+Assert.NotEqual(x, y)
+Assert.ApproxEqual(expected, actual, margin = 1e-6)
+Assert.CollectionEqual(expected, actual)
+Assert.CollectionSetEqual(expected, actual)   // ignores order
+Assert.True(condition)
+Assert.TrueWithGeneratedError(condition, fun () -> expensiveMessage())
+Assert.Less(a, b)
+Assert.LessOrEqual(a, b)
+Assert.Greater(a, b)
+Assert.GreaterOrEqual(a, b)
+Assert.Fail("unreachable")
+```
+
+Any exception fails a test, so `failwith` and third-party assertion libraries work too.
 
 ## Testing with Microsoft.Testing.Platform
 
