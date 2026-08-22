@@ -22,8 +22,10 @@ Assert.NotEqual(x, y)
 Assert.ApproxEqual(expected, actual, margin = 1e-6)
 Assert.CollectionEqual(expected, actual)
 Assert.CollectionSetEqual(expected, actual)   // ignores order
+Assert.Empty(items)                           // fails listing every item
 Assert.True(condition)
 Assert.TrueWithGeneratedError(condition, fun () -> expensiveMessage())
+Assert.Throws(fun () -> mayThrow())
 Assert.Less(a, b)
 Assert.LessOrEqual(a, b)
 Assert.Greater(a, b)
