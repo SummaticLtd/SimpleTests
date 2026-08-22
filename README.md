@@ -14,14 +14,14 @@ A minimal, explicit, type-safe dotnet test framework built on [Microsoft.Testing
 
 ## Assertions
 
-`Assert` throws on failure with a message showing the expected and actual values; every member takes an optional trailing message.
+`Assert` throws on failure with a message showing the expected and actual values. Most members take an optional trailing message; `TrueWithGeneratedError` and `Fail` require one.
 
 ```fsharp
 Assert.Equal(expected, actual)
 Assert.NotEqual(x, y)
 Assert.ApproxEqual(expected, actual, margin = 1e-6)
 Assert.CollectionEqual(expected, actual)
-Assert.CollectionSetEqual(expected, actual)   // ignores order
+Assert.CollectionSetEqual(expected, actual)   // ignores order; expected must be distinct
 Assert.Empty(items)                           // fails listing every item
 Assert.True(condition)
 Assert.TrueWithGeneratedError(condition, fun () -> expensiveMessage())

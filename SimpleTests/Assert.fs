@@ -25,10 +25,14 @@ type Assert =
             )
     [<Diagnostics.DebuggerHidden; Diagnostics.StackTraceHidden>]
     static member ApproxEqual(expected: float, actual: float, margin: float, ?errorMsg: string) =
-        if abs(expected - actual) > margin then
+        // NaN fails every comparison, so without this a NaN operand would satisfy the tolerance.
+        let nanInvolved = Double.IsNaN expected || Double.IsNaN actual
+        if nanInvolved || abs(expected - actual) > margin then
             failwith(
                 "Expected: " + expected.ToString() + Environment.NewLine
-                + "But was: " + actual.ToString() + Assert.Suffix errorMsg
+                + "But was: " + actual.ToString()
+                + (if nanInvolved then Environment.NewLine + "NaN is never within a tolerance." else "")
+                + Assert.Suffix errorMsg
             )
     [<Diagnostics.DebuggerHidden; Diagnostics.StackTraceHidden>]
     static member CollectionEqual<'a when 'a :> IEquatable<'a>>(expected: IReadOnlyCollection<'a>, actual: IReadOnlyCollection<'a>, ?errorMsg: string) =
