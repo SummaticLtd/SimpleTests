@@ -14,26 +14,7 @@ A minimal, explicit, type-safe dotnet test framework built on [Microsoft.Testing
 
 ## Assertions
 
-`Assert` throws on failure with a message showing the expected and actual values. Most members take an optional trailing message; `TrueWithGeneratedError` and `Fail` require one.
-
-```fsharp
-Assert.Equal(expected, actual)
-Assert.NotEqual(x, y)
-Assert.ApproxEqual(expected, actual, margin = 1e-6)
-Assert.CollectionEqual(expected, actual)
-Assert.CollectionSetEqual(expected, actual)   // ignores order; expected must be distinct
-Assert.Empty(items)                           // fails listing every item
-Assert.True(condition)
-Assert.TrueWithGeneratedError(condition, fun () -> expensiveMessage())
-Assert.Throws(fun () -> mayThrow())
-Assert.Less(a, b)
-Assert.LessOrEqual(a, b)
-Assert.Greater(a, b)
-Assert.GreaterOrEqual(a, b)
-Assert.Fail("unreachable")
-```
-
-Any exception fails a test, so `failwith` and third-party assertion libraries work too.
+Various assertions, such as `Assert.Equal`, `Assert.True`, and `Assert.CollectionEqual`, are provided in the `SimpleTests` namespace.
 
 ## Testing with Microsoft.Testing.Platform
 
