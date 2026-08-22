@@ -1,5 +1,7 @@
 ﻿# SimpleTests
 
+[![NuGet](https://img.shields.io/nuget/v/SimpleTests.svg)](https://www.nuget.org/packages/SimpleTests)
+
 A minimal, explicit, type-safe dotnet test framework built on [Microsoft.Testing.Platform](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-overview).
 
 ## Why SimpleTests?
